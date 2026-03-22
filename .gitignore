@@ -1,0 +1,14 @@
+# Credentials and secrets
+.env
+*.env
+secrets.json
+
+# n8n local exports with credentials embedded
+*-with-creds.json
+
+# Generated output reports
+outputs/
+
+# OS
+.DS_Store
+Thumbs.db

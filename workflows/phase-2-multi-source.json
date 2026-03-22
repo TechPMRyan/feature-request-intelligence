@@ -1,0 +1,256 @@
+{
+  "name": "Feature Request Intelligence — Phase 2",
+  "nodes": [
+    {
+      "id": "trigger-001",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 300],
+      "parameters": {}
+    },
+    {
+      "id": "config-001",
+      "name": "Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [200, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Set your App Store app ID (find it in the App Store URL or via https://tools.applemediaservices.com/)\n// Example: Notion = 1252015962, Slack = 618783545, Asana = 489969512\nreturn [{ json: {\n  apiKey: 'REPLACE_WITH_YOUR_ANTHROPIC_API_KEY',\n  appId: 'REPLACE_WITH_APP_ID'\n} }];"
+      }
+    },
+    {
+      "id": "http-itunes-001",
+      "name": "HTTP - iTunes RSS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [440, 120],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'https://itunes.apple.com/us/rss/customerreviews/id=' + $node['Config'].json.appId + '/sortBy=mostRecent/json' }}",
+        "sendHeaders": false
+      }
+    },
+    {
+      "id": "code-itunes-001",
+      "name": "Code - Parse iTunes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [700, 120],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const item = $input.first();\nconst entries = (item.json.feed && item.json.feed.entry) || [];\n\nconst reviews = entries\n  .filter(function(entry) {\n    // Skip the app metadata entry (no im:rating)\n    return entry['im:rating'] !== undefined;\n  })\n  .map(function(entry) {\n    const rawDate = (entry.updated && entry.updated.label) || '';\n    return {\n      json: {\n        text: (entry.content && entry.content.label) || (entry.title && entry.title.label) || '',\n        source: 'App Store',\n        date: rawDate ? rawDate.split('T')[0] : '',\n        rating: (entry['im:rating'] && entry['im:rating'].label) || ''\n      }\n    };\n  })\n  .filter(function(item) { return item.json.text.trim() !== ''; });\n\nreturn reviews.length > 0 ? reviews : [{ json: { text: '', source: 'App Store', date: '', rating: '' } }];"
+      }
+    },
+    {
+      "id": "code-g2-001",
+      "name": "Sample Data - G2 + Typeform",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 480],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// G2 and Typeform sample data\n// In Phase 3, replace with real G2 Buyer Intent API or Typeform webhook\nconst rows = [\n  { source: 'G2', date: '2025-11-05', rating: '3', text: 'Would be great to export everything at once instead of page by page.' },\n  { source: 'G2', date: '2025-10-28', rating: '2', text: 'The export limit is a dealbreaker for enterprise use.' },\n  { source: 'G2', date: '2025-11-04', rating: '2', text: 'Notification system is unreliable. Critical for our workflow.' },\n  { source: 'G2', date: '2025-10-30', rating: '2', text: 'PDF uploads are unreliable. Lost work twice.' },\n  { source: 'G2', date: '2025-10-31', rating: '4', text: 'Calendar integration would make this a 5-star product.' },\n  { source: 'G2', date: '2025-11-02', rating: '3', text: 'Dark mode would be a nice quality of life improvement.' },\n  { source: 'Typeform', date: '2025-11-12', rating: '', text: 'Our team wastes 2 hours a week manually exporting in batches.' },\n  { source: 'Typeform', date: '2025-11-11', rating: '', text: 'PDF support is broken on the latest iOS update.' },\n  { source: 'Typeform', date: '2025-11-13', rating: '', text: \"Missed 3 deadlines because notifications didn't fire. This is a serious bug.\" }\n];\n\nreturn rows.map(function(row) { return { json: row }; });"
+      }
+    },
+    {
+      "id": "merge-001",
+      "name": "Merge",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [960, 300],
+      "parameters": {
+        "mode": "append"
+      }
+    },
+    {
+      "id": "code-001",
+      "name": "Code - Normalize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const items = $input.all();\nconst feedbackItems = items\n  .map(function(item) {\n    return {\n      text: (item.json.text || item.json.Text || '').toString().trim(),\n      source: (item.json.source || item.json.Source || 'Unknown').toString().trim(),\n      date: (item.json.date || item.json.Date || '').toString().trim()\n    };\n  })\n  .filter(function(item) { return item.text !== ''; });\n\nconst sources = feedbackItems.map(function(i) { return i.source; });\nconst uniqueSources = sources.filter(function(v, i) { return sources.indexOf(v) === i; });\n\nconst system = 'You are a product manager synthesizing user research. Group customer feedback into named themes.';\nconst user = 'Cluster these feedback items into 5-10 themes. Return a JSON array ONLY with no markdown and no explanation. Each element: theme_id (integer), theme_name (3-6 word noun phrase), items (array with text and source fields). Start with [ and end with ].\\n\\nFeedback:\\n' + JSON.stringify(feedbackItems);\n\nreturn [{\n  json: {\n    total_items: feedbackItems.length,\n    source_count: uniqueSources.length,\n    body: JSON.stringify({\n      model: 'claude-sonnet-4-6',\n      max_tokens: 4096,\n      system: system,\n      messages: [{ role: 'user', content: user }]\n    })\n  }\n}];"
+      }
+    },
+    {
+      "id": "http-001",
+      "name": "HTTP - Claude Clustering",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1440, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" },
+            { "name": "x-api-key", "value": "={{ $node['Config'].json.apiKey }}" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.body }}"
+      }
+    },
+    {
+      "id": "code-002",
+      "name": "Code - Parse Clusters",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1680, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const item = $input.first();\nlet text = item.json.content[0].text.trim();\n\nif (text.charAt(0) !== '[') {\n  const start = text.indexOf('[');\n  const end = text.lastIndexOf(']');\n  if (start !== -1 && end !== -1) {\n    text = text.slice(start, end + 1);\n  }\n}\nconst clusters = JSON.parse(text);\n\nconst system = 'You are a product manager prioritizing a backlog using a RICE-adjacent scoring framework.';\nconst user = 'Score each of these feedback theme clusters on 4 dimensions (1-10 each):\\n- frequency: relative cluster size vs others (10 = most mentions)\\n- sentiment: emotional charge and urgency (10 = highest)\\n- revenue_signal: connection to churn, enterprise accounts, or upgrade blockers (10 = strongest)\\n- effort_hint: apparent implementation complexity (10 = simplest to build)\\n\\nComposite score: Math.round((frequency*2 + sentiment*2 + revenue_signal*3 + effort_hint*1) / 8 * 10)\\n\\nReturn JSON array ONLY — no markdown, no explanation. Each element: theme_id, theme_name, item_count, frequency_score, sentiment_score, revenue_signal_score, effort_hint_score, composite_score, scoring_rationale (2 sentences). Start with [ end with ].\\n\\nClusters:\\n' + JSON.stringify(clusters);\n\nreturn [{\n  json: {\n    total_items: $node['Code - Normalize'].json.total_items,\n    source_count: $node['Code - Normalize'].json.source_count,\n    clusters: clusters,\n    body: JSON.stringify({\n      model: 'claude-sonnet-4-6',\n      max_tokens: 2048,\n      system: system,\n      messages: [{ role: 'user', content: user }]\n    })\n  }\n}];"
+      }
+    },
+    {
+      "id": "http-002",
+      "name": "HTTP - Claude Scoring",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1920, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" },
+            { "name": "x-api-key", "value": "={{ $node['Config'].json.apiKey }}" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.body }}"
+      }
+    },
+    {
+      "id": "code-003",
+      "name": "Code - Parse Scores",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2160, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const item = $input.first();\nlet text = item.json.content[0].text.trim();\n\nif (text.charAt(0) !== '[') {\n  const start = text.indexOf('[');\n  const end = text.lastIndexOf(']');\n  if (start !== -1 && end !== -1) {\n    text = text.slice(start, end + 1);\n  }\n}\nconst scores = JSON.parse(text);\nscores.sort(function(a, b) { return b.composite_score - a.composite_score; });\n\nconst clusters = $node['Code - Parse Clusters'].json.clusters;\nconst today = new Date().toISOString().split('T')[0];\nconst totalItems = $node['Code - Normalize'].json.total_items;\nconst sourceCount = $node['Code - Normalize'].json.source_count;\n\nconst header = '# Feature Request Intelligence Report\\n**Generated:** ' + today + '\\n**Sources:** ' + totalItems + ' items across ' + sourceCount + ' sources\\n**Themes identified:** ' + scores.length;\n\nconst system = 'You are a senior product manager writing an intelligence report. Be direct, specific, and strategic. Write for time-constrained PMs and stakeholders.';\nconst user = 'Write a Markdown feature request intelligence report. Start with this exact header block (copy verbatim):\\n\\n' + header + '\\n\\nThen include:\\n1. ## Executive Summary (2-3 sentences on what customers want most and why it matters now)\\n2. ## Prioritized Themes — one ### subsection per theme with: score, frequency, sentiment, revenue signal, 2 representative quotes from the cluster items, 1-sentence recommendation\\n3. ## Recommended Next Actions (3 concrete bullets)\\n\\nScored themes (sorted by priority):\\n' + JSON.stringify(scores) + '\\n\\nOriginal clusters with full quote list:\\n' + JSON.stringify(clusters);\n\nreturn [{\n  json: {\n    filename: 'REPLACE_WITH_YOUR_OUTPUT_PATH/' + today + '-feature-request-report.md',\n    body: JSON.stringify({\n      model: 'claude-sonnet-4-6',\n      max_tokens: 4096,\n      system: system,\n      messages: [{ role: 'user', content: user }]\n    })\n  }\n}];"
+      }
+    },
+    {
+      "id": "http-003",
+      "name": "HTTP - Claude Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2400, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" },
+            { "name": "x-api-key", "value": "={{ $node['Config'].json.apiKey }}" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.body }}"
+      }
+    },
+    {
+      "id": "code-004",
+      "name": "Code - Format Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2640, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const item = $input.first();\nconst reportContent = item.json.content[0].text;\nconst filename = $node['Code - Parse Scores'].json.filename;\n\nreturn [{\n  json: {\n    filename: filename,\n    report: reportContent,\n    body: JSON.stringify({\n      filename: filename,\n      content: reportContent\n    })\n  }\n}];"
+      }
+    },
+    {
+      "id": "http-004",
+      "name": "HTTP - File Writer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2880, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:9998",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.body }}"
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [[{ "node": "Config", "type": "main", "index": 0 }]]
+    },
+    "Config": {
+      "main": [
+        [
+          { "node": "HTTP - iTunes RSS", "type": "main", "index": 0 },
+          { "node": "Sample Data - G2 + Typeform", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "HTTP - iTunes RSS": {
+      "main": [[{ "node": "Code - Parse iTunes", "type": "main", "index": 0 }]]
+    },
+    "Code - Parse iTunes": {
+      "main": [[{ "node": "Merge", "type": "main", "index": 0 }]]
+    },
+    "Sample Data - G2 + Typeform": {
+      "main": [[{ "node": "Merge", "type": "main", "index": 1 }]]
+    },
+    "Merge": {
+      "main": [[{ "node": "Code - Normalize", "type": "main", "index": 0 }]]
+    },
+    "Code - Normalize": {
+      "main": [[{ "node": "HTTP - Claude Clustering", "type": "main", "index": 0 }]]
+    },
+    "HTTP - Claude Clustering": {
+      "main": [[{ "node": "Code - Parse Clusters", "type": "main", "index": 0 }]]
+    },
+    "Code - Parse Clusters": {
+      "main": [[{ "node": "HTTP - Claude Scoring", "type": "main", "index": 0 }]]
+    },
+    "HTTP - Claude Scoring": {
+      "main": [[{ "node": "Code - Parse Scores", "type": "main", "index": 0 }]]
+    },
+    "Code - Parse Scores": {
+      "main": [[{ "node": "HTTP - Claude Report", "type": "main", "index": 0 }]]
+    },
+    "HTTP - Claude Report": {
+      "main": [[{ "node": "Code - Format Output", "type": "main", "index": 0 }]]
+    },
+    "Code - Format Output": {
+      "main": [[{ "node": "HTTP - File Writer", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": ""
+  }
+}
