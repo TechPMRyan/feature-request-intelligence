@@ -131,15 +131,17 @@ Claude doesn't see raw feedback at the scoring stage: it works from the clusteri
 
 ## Integrations
 
-| Source | Method | Auth |
-|--------|--------|------|
-| App Store reviews | iTunes RSS API | None |
-| G2 reviews | HTTP Request (public RSS) | None |
-| CSV / Google Sheets | Google Sheets node | OAuth |
-| Typeform | Typeform trigger | API key |
-| Claude | Anthropic API | API key |
-| Slack (output) | Incoming Webhook | Webhook URL |
-| Notion (output) | Notion API | Integration token |
+| Source | Method | Auth | Status |
+|--------|--------|------|--------|
+| App Store reviews | iTunes RSS API | None | ✅ Live |
+| G2 reviews | HTTP Request (public RSS) | None | ✅ Live |
+| CSV / Google Sheets | Google Sheets node | OAuth | ✅ Live |
+| Typeform | Typeform trigger | API key | ✅ Live |
+| Zendesk | Zendesk API | API key | 🔲 Planned |
+| Sleekplan | Sleekplan API | API key | 🔲 Planned |
+| Claude | Anthropic API | API key | ✅ Live |
+| Slack (output) | Incoming Webhook | Webhook URL | ✅ Live |
+| Notion (output) | Notion API | Integration token | ✅ Live |
 
 ---
 
@@ -148,6 +150,17 @@ Claude doesn't see raw feedback at the scoring stage: it works from the clusteri
 - [x] **Core Pipeline:** Sample data (22 rows, no external credentials) → Claude clustering + scoring + report → Markdown output
 - [x] **Multi-Source Ingestion:** Live App Store RSS (iTunes API) + G2/Typeform sample → Merge node → same Claude pipeline
 - [x] **Multi-Output Routing:** Switch node routes output to Markdown, Slack, or Notion based on `outputMode`
+
+---
+
+## Roadmap
+
+| # | Source | Notes |
+|---|--------|-------|
+| 1 | **Zendesk** | Ingest support tickets via Zendesk API; map ticket fields to unified schema (text, source, date, rating proxy from ticket priority/satisfaction) |
+| 2 | **Sleekplan** | Ingest feature votes and feedback posts via Sleekplan API; weight by vote count as a frequency signal |
+
+Both sources feed the existing Merge + Normalize stage with no changes to the Claude pipeline or output layer.
 
 ---
 
@@ -197,7 +210,7 @@ n8n's Code node sandbox blocks `fs`. Markdown output works by POSTing to a local
 powershell -ExecutionPolicy Bypass -File "path\to\file-writer.ps1"
 ```
 
-`file-writer.ps1` is available in the [ContextRadar](../ContextRadar) project in this repository, or copy it into this directory.
+Bring your own `file-writer.ps1` — any HTTP listener that accepts `POST { filename, content }` and writes the file to disk will work.
 
 ---
 
