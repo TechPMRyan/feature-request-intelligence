@@ -1,5 +1,6 @@
 {
-  "name": "Feature Request Intelligence — Phase 3",
+  "id": "fri-phase-3",
+  "name": "Feature Request Intelligence - Phase 3 Multi-Output",
   "nodes": [
     {
       "id": "trigger-001",
@@ -8,22 +9,82 @@
       "typeVersion": 1,
       "position": [
         0,
-        300
+        200
       ],
       "parameters": {}
     },
     {
-      "id": "config-001",
-      "name": "Config",
+      "id": "webhook-001",
+      "name": "Webhook - Slack Slash Command",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        500
+      ],
+      "webhookId": "fri-slack-trigger",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "fri-slack-trigger",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "config-manual-001",
+      "name": "Config (Manual)",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        200,
-        300
+        240,
+        200
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// outputMode options:\n//   markdown: writes report file via file-writer.ps1 on localhost:9998\n//   slack:    posts summary to Slack via Incoming Webhook\n//   notion:   creates a page in a Notion database\n//\n// Credentials: create in n8n (Credentials > New > HTTP Header Auth):\n//   \"Anthropic API\": header name = x-api-key,    value = your Anthropic key\n//   \"Notion API\":    header name = Authorization, value = Bearer YOUR_NOTION_KEY\n\nconst outputMode = 'markdown';\nconst VALID_MODES = ['markdown', 'slack', 'notion'];\nif (!VALID_MODES.includes(outputMode)) {\n  throw new Error('Invalid outputMode: \"' + outputMode + '\". Must be one of: ' + VALID_MODES.join(', '));\n}\n\nreturn [{ json: {\n  appId: 'REPLACE_WITH_APP_ID',\n  outputMode: outputMode,\n  outputPath: 'REPLACE_WITH_YOUR_OUTPUT_PATH',\n  slackWebhookUrl: 'REPLACE_WITH_SLACK_WEBHOOK_URL',\n  notionDatabaseId: 'REPLACE_WITH_NOTION_DATABASE_ID',\n  fileWriterSecret: 'REPLACE_WITH_FILE_WRITER_SECRET'\n} }];"
+        "jsCode": "// Manual trigger config with hardcoded defaults.\n// Change outputMode to 'slack' or 'notion' to test other output paths.\n//\n// Credentials: create in n8n (Credentials > New > HTTP Header Auth):\n//   \"Anthropic API\": header name = x-api-key, value = your Anthropic key\n//   \"Notion API\": header name = Authorization, value = Bearer YOUR_NOTION_KEY\n\nconst outputMode = 'markdown';\nconst daysBack = 30;\n\nconst VALID_MODES = ['markdown', 'slack', 'notion'];\nif (!VALID_MODES.includes(outputMode)) {\n  throw new Error('Invalid outputMode: \"' + outputMode + '\". Must be one of: ' + VALID_MODES.join(', '));\n}\n\nconst cutoffDate = new Date();\ncutoffDate.setDate(cutoffDate.getDate() - daysBack);\nconst cutoffISO = cutoffDate.toISOString().split('T')[0];\n\nreturn [{ json: {\n  apiKey: 'REPLACE_WITH_ANTHROPIC_API_KEY',\n  appId: 'REPLACE_WITH_APP_ID',\n  outputMode: outputMode,\n  outputPath: 'REPLACE_WITH_YOUR_OUTPUT_PATH',\n  slackWebhookUrl: 'REPLACE_WITH_SLACK_WEBHOOK_URL',\n  slackBotToken: 'REPLACE_WITH_SLACK_BOT_TOKEN',\n  notionDatabaseId: 'REPLACE_WITH_NOTION_DATABASE_ID',\n  fileWriterSecret: 'REPLACE_WITH_FILE_WRITER_SECRET',\n  channelId: '',\n  userId: '',\n  userName: '',\n  responseUrl: '',\n  platformFilter: '',\n  daysBack: daysBack,\n  cutoffDate: cutoffISO\n} }];"
+      }
+    },
+    {
+      "id": "code-parse-slash-001",
+      "name": "Code - Parse Slash Command",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        500
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst text = (body.text || '').trim();\nconst channelId = body.channel_id || '';\nconst userId = body.user_id || '';\nconst userName = body.user_name || '';\nconst responseUrl = body.response_url || '';\n\nlet platformFilter = '';\nlet daysBack = 30;\n\nconst allTime = /\\ball\\b/i.test(text);\nconst timeMatch = text.match(/last\\s+(\\d+)\\s+days?/i);\n\nif (allTime) {\n  daysBack = 36500;\n} else if (timeMatch) {\n  daysBack = parseInt(timeMatch[1], 10);\n  if (isNaN(daysBack) || daysBack < 1) daysBack = 30;\n}\n\nconst filterText = text.replace(/last\\s+\\d+\\s+days?/i, '').replace(/\\ball\\b/i, '').trim();\nif (filterText) {\n  platformFilter = filterText.toLowerCase();\n}\n\nconst cutoffDate = new Date();\ncutoffDate.setDate(cutoffDate.getDate() - daysBack);\nconst cutoffISO = cutoffDate.toISOString().split('T')[0];\n\nreturn [{\n  json: {\n    channelId: channelId,\n    userId: userId,\n    userName: userName,\n    responseUrl: responseUrl,\n    platformFilter: platformFilter,\n    daysBack: daysBack,\n    cutoffDate: cutoffISO,\n    rawText: text\n  }\n}];"
+      }
+    },
+    {
+      "id": "respond-001",
+      "name": "Respond to Webhook - Ack",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        480,
+        500
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ response_type: 'ephemeral', text: ':mag: Running Feature Request Intelligence analysis' + ($json.platformFilter ? ' (filter: ' + $json.platformFilter + ')' : '') + ' for the last ' + $json.daysBack + ' days. This takes 30-60 seconds, I will post the report here when done.' }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "config-slack-001",
+      "name": "Config (Slack)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        500
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Slack trigger config: pulls context from parsed slash command.\nconst slackCtx = $node['Code - Parse Slash Command'].json;\n\nreturn [{ json: {\n  apiKey: 'REPLACE_WITH_ANTHROPIC_API_KEY',\n  appId: 'REPLACE_WITH_APP_ID',\n  outputMode: 'slack',\n  outputPath: 'REPLACE_WITH_YOUR_OUTPUT_PATH',\n  slackWebhookUrl: 'REPLACE_WITH_SLACK_WEBHOOK_URL',\n  slackBotToken: 'REPLACE_WITH_SLACK_BOT_TOKEN',\n  notionDatabaseId: 'REPLACE_WITH_NOTION_DATABASE_ID',\n  fileWriterSecret: 'REPLACE_WITH_FILE_WRITER_SECRET',\n  channelId: slackCtx.channelId,\n  userId: slackCtx.userId,\n  userName: slackCtx.userName,\n  responseUrl: slackCtx.responseUrl,\n  platformFilter: slackCtx.platformFilter,\n  daysBack: slackCtx.daysBack,\n  cutoffDate: slackCtx.cutoffDate\n} }];"
       }
     },
     {
@@ -32,12 +93,12 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
       "position": [
-        440,
-        120
+        960,
+        350
       ],
       "parameters": {
         "method": "GET",
-        "url": "={{ 'https://itunes.apple.com/us/rss/customerreviews/id=' + $node['Config'].json.appId + '/sortBy=mostRecent/json' }}",
+        "url": "={{ 'https://itunes.apple.com/us/rss/customerreviews/id=' + $json.appId + '/sortBy=mostRecent/json' }}",
         "sendHeaders": false
       },
       "continueOnFail": true
@@ -48,39 +109,12 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        700,
-        120
+        1200,
+        350
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const item = $input.first();\nconst entries = (item.json.feed && item.json.feed.entry) || [];\n\nconst reviews = entries\n  .filter(function(entry) {\n    return entry['im:rating'] !== undefined;\n  })\n  .map(function(entry) {\n    const rawDate = (entry.updated && entry.updated.label) || '';\n    return {\n      json: {\n        text: ((entry.content && entry.content.label) || (entry.title && entry.title.label) || '').slice(0, 500),\n        source: 'App Store',\n        date: rawDate ? rawDate.split('T')[0] : '',\n        rating: (entry['im:rating'] && entry['im:rating'].label) || ''\n      }\n    };\n  })\n  .filter(function(item) { return item.json.text.trim() !== ''; });\n\nreturn reviews.length > 0 ? reviews : [{ json: { text: '', source: 'App Store', date: '', rating: '' } }];"
-      }
-    },
-    {
-      "id": "code-g2-001",
-      "name": "Sample Data - G2 + Typeform",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        440,
-        480
-      ],
-      "parameters": {
-        "mode": "runOnceForAllItems",
-        "jsCode": "const rows = [\n  { source: 'G2', date: '2025-11-05', rating: '3', text: 'Would be great to export everything at once instead of page by page.' },\n  { source: 'G2', date: '2025-10-28', rating: '2', text: 'The export limit is a dealbreaker for enterprise use.' },\n  { source: 'G2', date: '2025-11-04', rating: '2', text: 'Notification system is unreliable. Critical for our workflow.' },\n  { source: 'G2', date: '2025-10-30', rating: '2', text: 'PDF uploads are unreliable. Lost work twice.' },\n  { source: 'G2', date: '2025-10-31', rating: '4', text: 'Calendar integration would make this a 5-star product.' },\n  { source: 'G2', date: '2025-11-02', rating: '3', text: 'Dark mode would be a nice quality of life improvement.' },\n  { source: 'Typeform', date: '2025-11-12', rating: '', text: 'Our team wastes 2 hours a week manually exporting in batches.' },\n  { source: 'Typeform', date: '2025-11-11', rating: '', text: 'PDF support is broken on the latest iOS update.' },\n  { source: 'Typeform', date: '2025-11-13', rating: '', text: \"Missed 3 deadlines because notifications didn't fire. This is a serious bug.\" }\n];\n\nreturn rows.map(function(row) { return { json: row }; });"
-      }
-    },
-    {
-      "id": "merge-001",
-      "name": "Merge",
-      "type": "n8n-nodes-base.merge",
-      "typeVersion": 2,
-      "position": [
-        960,
-        300
-      ],
-      "parameters": {
-        "mode": "append"
+        "jsCode": "const item = $input.first();\n\n// HTTP node may return parsed JSON (item.json.feed) or a string wrapper (item.json.data)\nlet feed;\nif (item.json.feed) {\n  feed = item.json.feed;\n} else if (item.json.data) {\n  try { feed = JSON.parse(item.json.data).feed; } catch(e) { feed = null; }\n} else {\n  feed = null;\n}\n\nconst entries = (feed && feed.entry) || [];\n\n// Get config from whichever config node ran (fan-in: only one fires)\nconst configManual = $node['Config (Manual)'];\nconst configSlack = $node['Config (Slack)'];\nconst config = (configSlack && configSlack.json && configSlack.json.cutoffDate) ? configSlack.json : (configManual && configManual.json ? configManual.json : {});\nconst cutoff = config.cutoffDate || '';\nconst platformFilter = config.platformFilter || '';\n\nconst reviews = entries\n  .filter(function(entry) {\n    return entry['im:rating'] !== undefined;\n  })\n  .map(function(entry) {\n    const rawDate = (entry.updated && entry.updated.label) || '';\n    return {\n      json: {\n        text: ((entry.content && entry.content.label) || (entry.title && entry.title.label) || '').slice(0, 500),\n        source: 'App Store',\n        date: rawDate ? rawDate.split('T')[0] : '',\n        rating: (entry['im:rating'] && entry['im:rating'].label) || ''\n      }\n    };\n  })\n  .filter(function(item) { return item.json.text.trim() !== ''; })\n  .filter(function(item) {\n    if (cutoff && item.json.date) {\n      return item.json.date >= cutoff;\n    }\n    return true;\n  })\n  .filter(function(item) {\n    if (platformFilter) {\n      return item.json.text.toLowerCase().indexOf(platformFilter) !== -1 ||\n             item.json.source.toLowerCase().indexOf(platformFilter) !== -1;\n    }\n    return true;\n  });\n\nreturn reviews.length > 0 ? reviews : [{ json: { text: '', source: 'App Store', date: '', rating: '' } }];"
       }
     },
     {
@@ -89,13 +123,87 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1200,
-        300
+        1440,
+        350
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const items = $input.all();\nconst feedbackItems = items\n  .map(function(item) {\n    return {\n      text: (item.json.text || item.json.Text || '').toString().trim(),\n      source: (item.json.source || item.json.Source || 'Unknown').toString().trim(),\n      date: (item.json.date || item.json.Date || '').toString().trim()\n    };\n  })\n  .filter(function(item) { return item.text !== ''; })\n  .map(function(item) { item.text = item.text.slice(0, 1000); return item; }); // Cap at 1000 chars before sending to Claude\n\nif (feedbackItems.length === 0) {\n  throw new Error('No feedback items to process. Check that your data sources returned results.');\n}\n\nconst sources = feedbackItems.map(function(i) { return i.source; });\nconst uniqueSources = sources.filter(function(v, i) { return sources.indexOf(v) === i; });\n\nconst system = 'You are a product manager synthesizing user research. Group customer feedback into named themes.';\nconst user = 'Cluster these feedback items into 5-10 themes. Return a JSON array ONLY with no markdown and no explanation. Each element: theme_id (integer), theme_name (3-6 word noun phrase), items (array with text and source fields). Start with [ and end with ].\\n\\nFeedback:\\n' + JSON.stringify(feedbackItems);\n\nreturn [{\n  json: {\n    total_items: feedbackItems.length,\n    source_count: uniqueSources.length,\n    body: JSON.stringify({\n      model: 'claude-sonnet-4-6',\n      max_tokens: 4096,\n      system: system,\n      messages: [{ role: 'user', content: user }]\n    })\n  }\n}];"
+        "jsCode": "const items = $input.all();\nconst feedbackItems = items\n  .map(function(item) {\n    return {\n      text: (item.json.text || item.json.Text || '').toString().trim(),\n      source: (item.json.source || item.json.Source || 'Unknown').toString().trim(),\n      date: (item.json.date || item.json.Date || '').toString().trim()\n    };\n  })\n  .filter(function(item) { return item.text !== ''; })\n  .map(function(item) {\n    // Sanitize text: replace curly quotes, smart apostrophes, and other unicode chars that break JSON\n    item.text = item.text\n      .replace(/[\\u2018\\u2019\\u201A]/g, \"'\")\n      .replace(/[\\u201C\\u201D\\u201E]/g, '\"')\n      .replace(/[\\u2026]/g, '...')\n      .replace(/[\\u2013]/g, '-')\n      .replace(/[\\u2014]/g, '-')\n      .replace(/[^\\x20-\\x7E\\n]/g, '');\n    return item;\n  })\n  .map(function(item) { item.text = item.text.slice(0, 1000); return item; });\n\nif (feedbackItems.length === 0) {\n  // Return empty signal so downstream IF node can route to \"no data\" path\n  return [{\n    json: {\n      total_items: 0,\n      source_count: 0,\n      empty: true,\n      body: ''\n    }\n  }];\n}\n\nconst sources = feedbackItems.map(function(i) { return i.source; });\nconst uniqueSources = sources.filter(function(v, i) { return sources.indexOf(v) === i; });\n\nconst system = 'You are a product manager synthesizing user research. Group customer feedback into named themes.';\nconst user = 'Cluster these feedback items into 5-10 themes. Return a JSON array ONLY with no markdown and no explanation. Each element: theme_id (integer), theme_name (3-6 word noun phrase), items (array with text and source fields). Start with [ and end with ].\\n\\nFeedback:\\n' + JSON.stringify(feedbackItems);\n\nreturn [{\n  json: {\n    total_items: feedbackItems.length,\n    source_count: uniqueSources.length,\n    empty: false,\n    body: JSON.stringify({\n      model: 'claude-sonnet-4-6',\n      max_tokens: 4096,\n      system: system,\n      messages: [{ role: 'user', content: user }]\n    })\n  }\n}];"
       }
+    },
+    {
+      "id": "if-empty-001",
+      "name": "IF - Has Data",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        350
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "combinator": "and"
+          },
+          "conditions": [
+            {
+              "id": "cond-has-items",
+              "leftValue": "={{ $json.total_items }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "code-no-data-001",
+      "name": "Code - No Data Slack Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        550
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Only relevant when triggered via Slack. For manual trigger, this path just ends.\nconst configManual = $node['Config (Manual)'];\nconst configSlack = $node['Config (Slack)'];\nconst config = (configSlack && configSlack.json && configSlack.json.channelId) ? configSlack.json : (configManual && configManual.json ? configManual.json : {});\n\nconst filter = config.platformFilter || '';\nconst days = config.daysBack || 30;\nconst channelId = config.channelId || '';\nconst slackBotToken = config.slackBotToken || '';\n\nif (!channelId) {\n  // Manual trigger with no Slack context, nothing to post\n  return [{ json: { skip: true } }];\n}\n\nlet msg = 'No feedback items found';\nif (filter) msg += ' matching \"' + filter + '\"';\nmsg += ' in the last ' + days + ' days.';\nmsg += ' Try a broader search or a longer time range.';\n\nreturn [{\n  json: {\n    channelId: channelId,\n    slackBotToken: slackBotToken,\n    slackBody: JSON.stringify({\n      channel: channelId,\n      text: msg\n    })\n  }\n}];"
+      }
+    },
+    {
+      "id": "http-slack-no-data-001",
+      "name": "HTTP - Slack Post No Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        2160,
+        550
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $json.slackBotToken }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.slackBody }}"
+      },
+      "continueOnFail": true
     },
     {
       "id": "http-001",
@@ -103,8 +211,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
       "position": [
-        1440,
-        300
+        1920,
+        350
       ],
       "parameters": {
         "method": "POST",
@@ -143,12 +251,12 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1680,
-        300
+        2160,
+        350
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const item = $input.first();\nif (item.json.error) {\n  throw new Error('Claude API error: ' + (item.json.error.message || JSON.stringify(item.json.error)));\n}\nif (!item.json.content || !item.json.content[0]) {\n  throw new Error('Unexpected response from Claude: ' + JSON.stringify(item.json).slice(0, 200));\n}\nlet text = item.json.content[0].text.trim();\n\nif (text.charAt(0) !== '[') {\n  const start = text.indexOf('[');\n  const end = text.lastIndexOf(']');\n  if (start !== -1 && end !== -1) {\n    text = text.slice(start, end + 1);\n  }\n}\nlet clusters;\ntry {\n  clusters = JSON.parse(text);\n} catch (e) {\n  throw new Error('Failed to parse Claude clustering response: ' + e.message + ' | Raw: ' + text.slice(0, 300));\n}\n\nconst system = 'You are a product manager prioritizing a backlog using a RICE-adjacent scoring framework.';\nconst user = 'Score each of these feedback theme clusters on 4 dimensions (1-10 each):\\n- frequency: relative cluster size vs others (10 = most mentions)\\n- sentiment: emotional charge and urgency (10 = highest)\\n- revenue_signal: connection to churn, enterprise accounts, or upgrade blockers (10 = strongest)\\n- effort_hint: apparent implementation complexity (10 = simplest to build)\\n\\nComposite score: Math.round((frequency*2 + sentiment*2 + revenue_signal*3 + effort_hint*1) / 8 * 10)\\n\\nReturn JSON array ONLY — no markdown, no explanation. Each element: theme_id, theme_name, item_count, frequency_score, sentiment_score, revenue_signal_score, effort_hint_score, composite_score, scoring_rationale (2 sentences). Start with [ end with ].\\n\\nClusters:\\n' + JSON.stringify(clusters);\n\nreturn [{\n  json: {\n    total_items: $node['Code - Normalize'].json.total_items,\n    source_count: $node['Code - Normalize'].json.source_count,\n    clusters: clusters,\n    body: JSON.stringify({\n      model: 'claude-sonnet-4-6',\n      max_tokens: 2048,\n      system: system,\n      messages: [{ role: 'user', content: user }]\n    })\n  }\n}];"
+        "jsCode": "const item = $input.first();\nif (item.json.error) {\n  throw new Error('Claude API error: ' + (item.json.error.message || JSON.stringify(item.json.error)));\n}\nif (!item.json.content || !item.json.content[0]) {\n  throw new Error('Unexpected response from Claude: ' + JSON.stringify(item.json).slice(0, 200));\n}\nlet text = item.json.content[0].text.trim();\n\nif (text.charAt(0) !== '[') {\n  const start = text.indexOf('[');\n  const end = text.lastIndexOf(']');\n  if (start !== -1 && end !== -1) {\n    text = text.slice(start, end + 1);\n  }\n}\nlet clusters;\ntry {\n  clusters = JSON.parse(text);\n} catch (e) {\n  throw new Error('Failed to parse Claude clustering response: ' + e.message + ' | Raw: ' + text.slice(0, 300));\n}\n\nconst system = 'You are a product manager prioritizing a backlog using a RICE-adjacent scoring framework.';\nconst user = 'Score each of these feedback theme clusters on 4 dimensions (1-10 each):\\n- frequency: relative cluster size vs others (10 = most mentions)\\n- sentiment: emotional charge and urgency (10 = highest)\\n- revenue_signal: connection to churn, enterprise accounts, or upgrade blockers (10 = strongest)\\n- effort_hint: apparent implementation complexity (10 = simplest to build)\\n\\nComposite score: Math.round((frequency*2 + sentiment*2 + revenue_signal*3 + effort_hint*1) / 8 * 10)\\n\\nReturn JSON array ONLY, no markdown, no explanation. Each element: theme_id, theme_name, item_count, frequency_score, sentiment_score, revenue_signal_score, effort_hint_score, composite_score, scoring_rationale (2 sentences). Start with [ end with ].\\n\\nClusters:\\n' + JSON.stringify(clusters);\n\nreturn [{\n  json: {\n    total_items: $node['Code - Normalize'].json.total_items,\n    source_count: $node['Code - Normalize'].json.source_count,\n    clusters: clusters,\n    body: JSON.stringify({\n      model: 'claude-sonnet-4-6',\n      max_tokens: 2048,\n      system: system,\n      messages: [{ role: 'user', content: user }]\n    })\n  }\n}];"
       }
     },
     {
@@ -157,8 +265,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
       "position": [
-        1920,
-        300
+        2400,
+        350
       ],
       "parameters": {
         "method": "POST",
@@ -197,12 +305,12 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2160,
-        300
+        2640,
+        350
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const item = $input.first();\nif (item.json.error) {\n  throw new Error('Claude API error: ' + (item.json.error.message || JSON.stringify(item.json.error)));\n}\nif (!item.json.content || !item.json.content[0]) {\n  throw new Error('Unexpected response from Claude: ' + JSON.stringify(item.json).slice(0, 200));\n}\nlet text = item.json.content[0].text.trim();\n\nif (text.charAt(0) !== '[') {\n  const start = text.indexOf('[');\n  const end = text.lastIndexOf(']');\n  if (start !== -1 && end !== -1) {\n    text = text.slice(start, end + 1);\n  }\n}\nlet scores;\ntry {\n  scores = JSON.parse(text);\n} catch (e) {\n  throw new Error('Failed to parse Claude scoring response: ' + e.message + ' | Raw: ' + text.slice(0, 300));\n}\nscores.sort(function(a, b) { return b.composite_score - a.composite_score; });\n\nconst clusters = $node['Code - Parse Clusters'].json.clusters;\nconst today = new Date().toISOString().split('T')[0];\nconst totalItems = $node['Code - Normalize'].json.total_items;\nconst sourceCount = $node['Code - Normalize'].json.source_count;\nconst outputPath = $node['Config'].json.outputPath;\n\nconst header = '# Feature Request Intelligence Report\\n**Generated:** ' + today + '\\n**Sources:** ' + totalItems + ' items across ' + sourceCount + ' sources\\n**Themes identified:** ' + scores.length;\n\nconst system = 'You are a senior product manager writing an intelligence report. Be direct, specific, and strategic. Write for time-constrained PMs and stakeholders.';\nconst user = 'Write a Markdown feature request intelligence report. Start with this exact header block (copy verbatim):\\n\\n' + header + '\\n\\nThen include:\\n1. ## Executive Summary (2-3 sentences on what customers want most and why it matters now)\\n2. ## Prioritized Themes — one ### subsection per theme with: score, frequency, sentiment, revenue signal, 2 representative quotes from the cluster items, 1-sentence recommendation\\n3. ## Recommended Next Actions (3 concrete bullets)\\n\\nScored themes (sorted by priority):\\n' + JSON.stringify(scores) + '\\n\\nOriginal clusters with full quote list:\\n' + JSON.stringify(clusters);\n\nreturn [{\n  json: {\n    filename: outputPath + '/' + today + '-feature-request-report.md',\n    scores: scores,\n    total_items: totalItems,\n    source_count: sourceCount,\n    body: JSON.stringify({\n      model: 'claude-sonnet-4-6',\n      max_tokens: 4096,\n      system: system,\n      messages: [{ role: 'user', content: user }]\n    })\n  }\n}];"
+        "jsCode": "const item = $input.first();\nif (item.json.error) {\n  throw new Error('Claude API error: ' + (item.json.error.message || JSON.stringify(item.json.error)));\n}\nif (!item.json.content || !item.json.content[0]) {\n  throw new Error('Unexpected response from Claude: ' + JSON.stringify(item.json).slice(0, 200));\n}\nlet text = item.json.content[0].text.trim();\n\nif (text.charAt(0) !== '[') {\n  const start = text.indexOf('[');\n  const end = text.lastIndexOf(']');\n  if (start !== -1 && end !== -1) {\n    text = text.slice(start, end + 1);\n  }\n}\nlet scores;\ntry {\n  scores = JSON.parse(text);\n} catch (e) {\n  throw new Error('Failed to parse Claude scoring response: ' + e.message + ' | Raw: ' + text.slice(0, 300));\n}\nscores.sort(function(a, b) { return b.composite_score - a.composite_score; });\n\nconst clusters = $node['Code - Parse Clusters'].json.clusters;\nconst today = new Date().toISOString().split('T')[0];\nconst totalItems = $node['Code - Normalize'].json.total_items;\nconst sourceCount = $node['Code - Normalize'].json.source_count;\n\n// Resolve config from whichever trigger path ran\nconst configManual = $node['Config (Manual)'];\nconst configSlack = $node['Config (Slack)'];\nconst config = (configSlack && configSlack.json && configSlack.json.outputPath) ? configSlack.json : (configManual && configManual.json ? configManual.json : {});\nconst outputPath = config.outputPath || '';\n\nconst header = '# Feature Request Intelligence Report\\n**Generated:** ' + today + '\\n**Sources:** ' + totalItems + ' items across ' + sourceCount + ' sources\\n**Themes identified:** ' + scores.length;\n\nconst system = 'You are a senior product manager writing an intelligence report. Be direct, specific, and strategic. Write for time-constrained PMs and stakeholders.';\nconst user = 'Write a Markdown feature request intelligence report. Start with this exact header block (copy verbatim):\\n\\n' + header + '\\n\\nThen include:\\n1. ## Executive Summary (2-3 sentences on what customers want most and why it matters now)\\n2. ## Prioritized Themes, one ### subsection per theme with: score, frequency, sentiment, revenue signal, 2 representative quotes from the cluster items, 1-sentence recommendation\\n3. ## Recommended Next Actions (3 concrete bullets)\\n\\nScored themes (sorted by priority):\\n' + JSON.stringify(scores) + '\\n\\nOriginal clusters with full quote list:\\n' + JSON.stringify(clusters);\n\nreturn [{\n  json: {\n    filename: outputPath + '/' + today + '-feature-request-report.md',\n    scores: scores,\n    total_items: totalItems,\n    source_count: sourceCount,\n    body: JSON.stringify({\n      model: 'claude-sonnet-4-6',\n      max_tokens: 4096,\n      system: system,\n      messages: [{ role: 'user', content: user }]\n    })\n  }\n}];"
       }
     },
     {
@@ -211,8 +319,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
       "position": [
-        2400,
-        300
+        2880,
+        350
       ],
       "parameters": {
         "method": "POST",
@@ -251,8 +359,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2640,
-        300
+        3120,
+        350
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
@@ -265,12 +373,12 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 1,
       "position": [
-        2880,
-        300
+        3360,
+        350
       ],
       "parameters": {
         "dataType": "string",
-        "value1": "={{ $node['Config'].json.outputMode }}",
+        "value1": "={{ (function() { var cs = $node['Config (Slack)']; var cm = $node['Config (Manual)']; return (cs && cs.json && cs.json.outputMode) ? cs.json.outputMode : (cm && cm.json ? cm.json.outputMode : 'markdown'); })() }}",
         "rules": {
           "rules": [
             {
@@ -296,8 +404,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
       "position": [
-        3120,
-        120
+        3600,
+        150
       ],
       "parameters": {
         "method": "POST",
@@ -311,7 +419,7 @@
             },
             {
               "name": "X-Writer-Secret",
-              "value": "={{ $node['Config'].json.fileWriterSecret }}"
+              "value": "={{ (function() { var cs = $node['Config (Slack)']; var cm = $node['Config (Manual)']; return (cs && cs.json && cs.json.fileWriterSecret) ? cs.json.fileWriterSecret : (cm && cm.json ? cm.json.fileWriterSecret : ''); })() }}"
             }
           ]
         },
@@ -323,36 +431,40 @@
       "continueOnFail": true
     },
     {
-      "id": "code-slack-001",
-      "name": "Code - Format Slack",
+      "id": "code-slack-report-001",
+      "name": "Code - Format Slack Report",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3120,
-        300
+        3600,
+        350
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const item = $input.first();\nconst report = item.json.report;\nconst scores = item.json.scores || [];\nconst today = new Date().toISOString().split('T')[0];\nconst totalItems = item.json.total_items;\nconst sourceCount = item.json.source_count;\n\n// Extract executive summary from the markdown report\nconst execMatch = report.match(/## Executive Summary\\n([\\s\\S]*?)(?=\\n## )/);\nconst execSummary = execMatch ? execMatch[1].trim().replace(/\\n+/g, ' ').slice(0, 400) : '';\n\nconst blocks = [\n  {\n    \"type\": \"header\",\n    \"text\": {\"type\": \"plain_text\", \"text\": \"Feature Request Intelligence — \" + today}\n  },\n  {\n    \"type\": \"section\",\n    \"fields\": [\n      {\"type\": \"mrkdwn\", \"text\": \"*Items analyzed:* \" + totalItems},\n      {\"type\": \"mrkdwn\", \"text\": \"*Sources:* \" + sourceCount},\n      {\"type\": \"mrkdwn\", \"text\": \"*Themes found:* \" + scores.length}\n    ]\n  }\n];\n\nif (execSummary) {\n  blocks.push({\"type\": \"section\", \"text\": {\"type\": \"mrkdwn\", \"text\": execSummary}});\n}\n\nblocks.push({\"type\": \"divider\"});\nblocks.push({\"type\": \"section\", \"text\": {\"type\": \"mrkdwn\", \"text\": \"*Top Priority Themes:*\"}});\n\nscores.slice(0, 3).forEach(function(theme, i) {\n  blocks.push({\n    \"type\": \"section\",\n    \"text\": {\n      \"type\": \"mrkdwn\",\n      \"text\": \"*\" + (i + 1) + \". \" + theme.theme_name + \"* — Score: \" + theme.composite_score + \"/100\\n\" + (theme.scoring_rationale || '')\n    }\n  });\n});\n\nreturn [{\n  json: {\n    body: JSON.stringify({\n      text: \"Feature Request Intelligence Report — \" + today,\n      blocks: blocks\n    })\n  }\n}];"
+        "jsCode": "const item = $input.first();\nconst report = item.json.report;\nconst scores = item.json.scores || [];\nconst today = new Date().toISOString().split('T')[0];\nconst totalItems = item.json.total_items;\nconst sourceCount = item.json.source_count;\n\n// Resolve config from whichever trigger path ran\nconst configManual = $node['Config (Manual)'];\nconst configSlack = $node['Config (Slack)'];\nconst config = (configSlack && configSlack.json && configSlack.json.channelId) ? configSlack.json : (configManual && configManual.json ? configManual.json : {});\nconst channelId = config.channelId || '';\nconst userId = config.userId || '';\nconst platformFilter = config.platformFilter || '';\nconst daysBack = config.daysBack || 30;\nconst slackBotToken = config.slackBotToken || '';\n\n// Extract executive summary from the markdown report\nconst execMatch = report.match(/## Executive Summary\\n([\\s\\S]*?)(?=\\n## )/);\nconst execSummary = execMatch ? execMatch[1].trim().replace(/\\n+/g, ' ').slice(0, 400) : '';\n\nconst filterNote = platformFilter ? ' | Filter: \"' + platformFilter + '\"' : '';\nconst userMention = userId ? 'Requested by <@' + userId + '> | ' : '';\n\nconst blocks = [\n  {\n    \"type\": \"header\",\n    \"text\": {\"type\": \"plain_text\", \"text\": \"Feature Request Intelligence, \" + today}\n  },\n  {\n    \"type\": \"context\",\n    \"elements\": [\n      {\"type\": \"mrkdwn\", \"text\": userMention + \"Last \" + daysBack + \" days\" + filterNote}\n    ]\n  },\n  {\n    \"type\": \"section\",\n    \"fields\": [\n      {\"type\": \"mrkdwn\", \"text\": \"*Items analyzed:* \" + totalItems},\n      {\"type\": \"mrkdwn\", \"text\": \"*Sources:* \" + sourceCount},\n      {\"type\": \"mrkdwn\", \"text\": \"*Themes found:* \" + scores.length}\n    ]\n  }\n];\n\nif (execSummary) {\n  blocks.push({\"type\": \"section\", \"text\": {\"type\": \"mrkdwn\", \"text\": execSummary}});\n}\n\nblocks.push({\"type\": \"divider\"});\nblocks.push({\"type\": \"section\", \"text\": {\"type\": \"mrkdwn\", \"text\": \"*Top Priority Themes:*\"}});\n\nscores.slice(0, 5).forEach(function(theme, i) {\n  blocks.push({\n    \"type\": \"section\",\n    \"text\": {\n      \"type\": \"mrkdwn\",\n      \"text\": \"*\" + (i + 1) + \". \" + theme.theme_name + \"*, Score: \" + theme.composite_score + \"/100\\n\" + (theme.scoring_rationale || '')\n    }\n  });\n});\n\nif (scores.length > 5) {\n  blocks.push({\n    \"type\": \"context\",\n    \"elements\": [{\"type\": \"mrkdwn\", \"text\": \"_\" + (scores.length - 5) + \" more themes in full report_\"}]\n  });\n}\n\nreturn [{\n  json: {\n    channelId: channelId,\n    slackBotToken: slackBotToken,\n    filename: item.json.filename,\n    slackBody: JSON.stringify({\n      channel: channelId,\n      text: \"Feature Request Intelligence Report, \" + today,\n      blocks: blocks,\n      unfurl_links: false\n    }),\n    fileWriterBody: item.json.body\n  }\n}];"
       }
     },
     {
-      "id": "http-slack-001",
-      "name": "HTTP - Slack Webhook",
+      "id": "http-slack-post-001",
+      "name": "HTTP - Slack Post Report",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
       "position": [
-        3360,
-        300
+        3840,
+        250
       ],
       "parameters": {
         "method": "POST",
-        "url": "={{ $node['Config'].json.slackWebhookUrl }}",
+        "url": "https://slack.com/api/chat.postMessage",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
-              "name": "content-type",
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $json.slackBotToken }}"
+            },
+            {
+              "name": "Content-Type",
               "value": "application/json"
             }
           ]
@@ -360,7 +472,159 @@
         "sendBody": true,
         "contentType": "raw",
         "rawContentType": "application/json",
-        "body": "={{ $json.body }}"
+        "body": "={{ $json.slackBody }}"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "http-slack-file-writer-001",
+      "name": "HTTP - Slack File Writer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        3840,
+        450
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:9998",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-Writer-Secret",
+              "value": "={{ (function() { var cs = $node['Config (Slack)']; var cm = $node['Config (Manual)']; return (cs && cs.json && cs.json.fileWriterSecret) ? cs.json.fileWriterSecret : (cm && cm.json ? cm.json.fileWriterSecret : ''); })() }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.fileWriterBody }}"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "code-prep-upload-001",
+      "name": "Code - Prep File Upload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4080,
+        250
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const report = $node['Code - Format Output'].json.report;\nconst today = new Date().toISOString().split('T')[0];\nconst filename = today + '-feature-request-report.md';\nconst fileSize = new TextEncoder().encode(report).length;\n\nconst configManual = $node['Config (Manual)'];\nconst configSlack = $node['Config (Slack)'];\nconst config = (configSlack && configSlack.json && configSlack.json.channelId) ? configSlack.json : (configManual && configManual.json ? configManual.json : {});\n\nreturn [{ json: { filename, fileSize, report, channelId: config.channelId || '', slackBotToken: config.slackBotToken || '' } }];"
+      }
+    },
+    {
+      "id": "http-get-upload-url-001",
+      "name": "HTTP - Get Upload URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        4320,
+        250
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/files.getUploadURLExternal",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $json.slackBotToken }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/x-www-form-urlencoded"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/x-www-form-urlencoded",
+        "body": "={{ 'filename=' + encodeURIComponent($json.filename) + '&length=' + $json.fileSize }}"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "code-map-upload-001",
+      "name": "Code - Map Upload Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4560,
+        250
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const urlResp = $input.first().json;\nconst prep = $node['Code - Prep File Upload'].json;\nlet uploadUrl = urlResp.upload_url;\nlet fileId = urlResp.file_id;\nif (!uploadUrl && urlResp.data) {\n  try {\n    const parsed = typeof urlResp.data === 'string' ? JSON.parse(urlResp.data) : urlResp.data;\n    uploadUrl = parsed.upload_url;\n    fileId = parsed.file_id;\n  } catch(e) {}\n}\nreturn [{ json: { uploadUrl, fileId, report: prep.report, channelId: prep.channelId, slackBotToken: prep.slackBotToken } }];"
+      }
+    },
+    {
+      "id": "http-upload-file-001",
+      "name": "HTTP - Upload File Content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        4800,
+        250
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.uploadUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/octet-stream"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/octet-stream",
+        "body": "={{ $node['Code - Map Upload Data'].json.report }}"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "http-complete-upload-001",
+      "name": "HTTP - Complete Upload",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        5040,
+        250
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/files.completeUploadExternal",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $node['Code - Map Upload Data'].json.slackBotToken }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ files: [{ id: $node['Code - Map Upload Data'].json.fileId, title: 'Feature Request Intelligence Report, ' + new Date().toISOString().split('T')[0] }], channel_id: $node['Code - Map Upload Data'].json.channelId, initial_comment: 'Full report attached below.' }) }}"
       },
       "continueOnFail": true
     },
@@ -370,12 +634,12 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3120,
-        480
+        3600,
+        550
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "const item = $input.first();\nconst report = item.json.report;\nconst today = new Date().toISOString().split('T')[0];\nconst dbId = $node['Config'].json.notionDatabaseId;\n\n// Notion rich_text blocks have a 2000 char limit — chunk the report\nconst CHUNK = 1900;\nconst chunks = [];\nfor (let i = 0; i < report.length; i += CHUNK) {\n  chunks.push(report.slice(i, i + CHUNK));\n}\n\nconst children = chunks.map(function(chunk) {\n  return {\n    \"object\": \"block\",\n    \"type\": \"paragraph\",\n    \"paragraph\": {\n      \"rich_text\": [{\"type\": \"text\", \"text\": {\"content\": chunk}}]\n    }\n  };\n});\n\nreturn [{\n  json: {\n    body: JSON.stringify({\n      \"parent\": {\"database_id\": dbId},\n      \"properties\": {\n        \"Name\": {\n          \"title\": [{\"text\": {\"content\": \"Feature Request Report — \" + today}}]\n        }\n      },\n      \"children\": children\n    })\n  }\n}];"
+        "jsCode": "const item = $input.first();\nconst report = item.json.report;\nconst today = new Date().toISOString().split('T')[0];\n\nconst configManual = $node['Config (Manual)'];\nconst configSlack = $node['Config (Slack)'];\nconst config = (configSlack && configSlack.json && configSlack.json.notionDatabaseId) ? configSlack.json : (configManual && configManual.json ? configManual.json : {});\nconst dbId = config.notionDatabaseId || '';\n\n// Notion rich_text blocks have a 2000 char limit: chunk the report\nconst CHUNK = 1900;\nconst chunks = [];\nfor (let i = 0; i < report.length; i += CHUNK) {\n  chunks.push(report.slice(i, i + CHUNK));\n}\n\nconst children = chunks.map(function(chunk) {\n  return {\n    \"object\": \"block\",\n    \"type\": \"paragraph\",\n    \"paragraph\": {\n      \"rich_text\": [{\"type\": \"text\", \"text\": {\"content\": chunk}}]\n    }\n  };\n});\n\nreturn [{\n  json: {\n    body: JSON.stringify({\n      \"parent\": {\"database_id\": dbId},\n      \"properties\": {\n        \"Name\": {\n          \"title\": [{\"text\": {\"content\": \"Feature Request Report, \" + today}}]\n        }\n      },\n      \"children\": children\n    })\n  }\n}];"
       }
     },
     {
@@ -384,8 +648,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4,
       "position": [
-        3360,
-        480
+        3840,
+        550
       ],
       "parameters": {
         "method": "POST",
@@ -424,23 +688,62 @@
       "main": [
         [
           {
-            "node": "Config",
+            "node": "Config (Manual)",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Config": {
+    "Webhook - Slack Slash Command": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse Slash Command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parse Slash Command": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook - Ack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Webhook - Ack": {
+      "main": [
+        [
+          {
+            "node": "Config (Slack)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config (Manual)": {
       "main": [
         [
           {
             "node": "HTTP - iTunes RSS",
             "type": "main",
             "index": 0
-          },
+          }
+        ]
+      ]
+    },
+    "Config (Slack)": {
+      "main": [
+        [
           {
-            "node": "Sample Data - G2 + Typeform",
+            "node": "HTTP - iTunes RSS",
             "type": "main",
             "index": 0
           }
@@ -462,28 +765,6 @@
       "main": [
         [
           {
-            "node": "Merge",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Sample Data - G2 + Typeform": {
-      "main": [
-        [
-          {
-            "node": "Merge",
-            "type": "main",
-            "index": 1
-          }
-        ]
-      ]
-    },
-    "Merge": {
-      "main": [
-        [
-          {
             "node": "Code - Normalize",
             "type": "main",
             "index": 0
@@ -495,7 +776,36 @@
       "main": [
         [
           {
+            "node": "IF - Has Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Has Data": {
+      "main": [
+        [
+          {
             "node": "HTTP - Claude Clustering",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code - No Data Slack Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - No Data Slack Message": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Slack Post No Data",
             "type": "main",
             "index": 0
           }
@@ -579,7 +889,7 @@
         ],
         [
           {
-            "node": "Code - Format Slack",
+            "node": "Code - Format Slack Report",
             "type": "main",
             "index": 0
           }
@@ -593,11 +903,71 @@
         ]
       ]
     },
-    "Code - Format Slack": {
+    "Code - Format Slack Report": {
       "main": [
         [
           {
-            "node": "HTTP - Slack Webhook",
+            "node": "HTTP - Slack Post Report",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "HTTP - Slack File Writer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Slack Post Report": {
+      "main": [
+        [
+          {
+            "node": "Code - Prep File Upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prep File Upload": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Get Upload URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Get Upload URL": {
+      "main": [
+        [
+          {
+            "node": "Code - Map Upload Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Map Upload Data": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Upload File Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Upload File Content": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Complete Upload",
             "type": "main",
             "index": 0
           }
