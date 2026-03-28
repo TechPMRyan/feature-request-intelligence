@@ -1,5 +1,5 @@
 {
-  "name": "Feature Request Intelligence — Phase 3",
+  "name": "Feature Request Intelligence — Phase 4",
   "nodes": [
     {
       "id": "trigger-001",
@@ -23,7 +23,7 @@
       ],
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// outputMode options:\n//   markdown: writes report file via file-writer.ps1 on localhost:9998\n//   slack:    posts summary to Slack via Incoming Webhook\n//   notion:   creates a page in a Notion database\n//\n// Credentials: create in n8n (Credentials > New > HTTP Header Auth):\n//   \"Anthropic API\": header name = x-api-key,    value = your Anthropic key\n//   \"Notion API\":    header name = Authorization, value = Bearer YOUR_NOTION_KEY\n\nconst outputMode = 'markdown';\nconst VALID_MODES = ['markdown', 'slack', 'notion'];\nif (!VALID_MODES.includes(outputMode)) {\n  throw new Error('Invalid outputMode: \"' + outputMode + '\". Must be one of: ' + VALID_MODES.join(', '));\n}\n\nreturn [{ json: {\n  appId: 'REPLACE_WITH_APP_ID',\n  outputMode: outputMode,\n  outputPath: 'REPLACE_WITH_YOUR_OUTPUT_PATH',\n  slackWebhookUrl: 'REPLACE_WITH_SLACK_WEBHOOK_URL',\n  notionDatabaseId: 'REPLACE_WITH_NOTION_DATABASE_ID',\n  fileWriterSecret: 'REPLACE_WITH_FILE_WRITER_SECRET'\n} }];"
+        "jsCode": "// outputMode options:\n//   markdown: writes report file via file-writer.ps1 on localhost:9998\n//   slack:    posts summary to Slack via Incoming Webhook\n//   notion:   creates a page in a Notion database\n//\n// zendeskQuery examples:\n//   'type:ticket created>2025-01-01'                        : all tickets since date\n//   'type:ticket tags:product-feedback'                     : tagged tickets only\n//   'type:ticket status:solved satisfaction:bad'            : bad CSAT tickets\n//   'type:ticket tags:bug created>2025-01-01 status:solved' : solved bugs since date\n//\n// Credentials: create in n8n (Credentials > New > HTTP Header Auth):\n//   \"Anthropic API\": header name = x-api-key,    value = your Anthropic key\n//   \"Notion API\":    header name = Authorization, value = Bearer YOUR_NOTION_KEY\n//   \"Zendesk API\":   header name = Authorization, value = Basic BASE64(email/token:token)\n//     Base64 encode:  btoa('you@company.com/token:YOUR_ZENDESK_API_TOKEN')\n\nconst outputMode = 'markdown';\nconst VALID_MODES = ['markdown', 'slack', 'notion'];\nif (!VALID_MODES.includes(outputMode)) {\n  throw new Error('Invalid outputMode: \"' + outputMode + '\". Must be one of: ' + VALID_MODES.join(', '));\n}\n\nreturn [{ json: {\n  appId: 'REPLACE_WITH_APP_ID',\n  outputMode: outputMode,\n  outputPath: 'REPLACE_WITH_YOUR_OUTPUT_PATH',\n  slackWebhookUrl: 'REPLACE_WITH_SLACK_WEBHOOK_URL',\n  notionDatabaseId: 'REPLACE_WITH_NOTION_DATABASE_ID',\n  fileWriterSecret: 'REPLACE_WITH_FILE_WRITER_SECRET',\n  zendeskSubdomain: 'REPLACE_WITH_ZENDESK_SUBDOMAIN',\n  zendeskQuery: 'type:ticket created>2025-01-01'\n} }];"
       }
     },
     {
@@ -68,6 +68,52 @@
       "parameters": {
         "mode": "runOnceForAllItems",
         "jsCode": "const rows = [\n  { source: 'G2', date: '2025-11-05', rating: '3', text: 'Would be great to export everything at once instead of page by page.' },\n  { source: 'G2', date: '2025-10-28', rating: '2', text: 'The export limit is a dealbreaker for enterprise use.' },\n  { source: 'G2', date: '2025-11-04', rating: '2', text: 'Notification system is unreliable. Critical for our workflow.' },\n  { source: 'G2', date: '2025-10-30', rating: '2', text: 'PDF uploads are unreliable. Lost work twice.' },\n  { source: 'G2', date: '2025-10-31', rating: '4', text: 'Calendar integration would make this a 5-star product.' },\n  { source: 'G2', date: '2025-11-02', rating: '3', text: 'Dark mode would be a nice quality of life improvement.' },\n  { source: 'Typeform', date: '2025-11-12', rating: '', text: 'Our team wastes 2 hours a week manually exporting in batches.' },\n  { source: 'Typeform', date: '2025-11-11', rating: '', text: 'PDF support is broken on the latest iOS update.' },\n  { source: 'Typeform', date: '2025-11-13', rating: '', text: \"Missed 3 deadlines because notifications didn't fire. This is a serious bug.\" }\n];\n\nreturn rows.map(function(row) { return { json: row }; });"
+      }
+    },
+    {
+      "id": "http-zendesk-001",
+      "name": "HTTP - Zendesk API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        440,
+        660
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'https://' + $node['Config'].json.zendeskSubdomain + '.zendesk.com/api/v2/search.json?query=' + encodeURIComponent($node['Config'].json.zendeskQuery) + '&sort_by=created_at&sort_order=desc&per_page=200' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "continueOnFail": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Zendesk API"
+        }
+      }
+    },
+    {
+      "id": "code-zendesk-001",
+      "name": "Code - Parse Zendesk",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
+        660
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const item = $input.first();\nif (item.json.error) {\n  throw new Error('Zendesk API error: ' + (item.json.description || item.json.error || JSON.stringify(item.json)));\n}\nconst results = (item.json.results) || [];\n\n// Priority → rating proxy (lower number = more severe/urgent)\nconst priorityMap = { urgent: '1', high: '2', normal: '3', low: '4' };\n\nconst tickets = results\n  .filter(function(t) {\n    // Search API returns mixed result types; keep tickets only\n    return t.result_type === 'ticket' || t.subject !== undefined;\n  })\n  .map(function(t) {\n    let rating = '3'; // default to normal\n\n    // Prefer CSAT score if available\n    if (t.satisfaction_rating && t.satisfaction_rating.score) {\n      rating = t.satisfaction_rating.score === 'good' ? '5' : '1';\n    } else if (t.priority && priorityMap[t.priority]) {\n      rating = priorityMap[t.priority];\n    }\n\n    // Combine subject + description; cap at 1000 chars to stay within token budget\n    const parts = [t.subject, t.description].filter(Boolean);\n    const text = parts.join(': ').trim().slice(0, 1000);\n\n    return {\n      json: {\n        text: text,\n        source: 'Zendesk',\n        date: t.created_at ? t.created_at.split('T')[0] : '',\n        rating: rating\n      }\n    };\n  })\n  .filter(function(item) { return item.json.text !== ''; });\n\nreturn tickets.length > 0 ? tickets : [{ json: { text: '', source: 'Zendesk', date: '', rating: '' } }];"
       }
     },
     {
@@ -443,6 +489,11 @@
             "node": "Sample Data - G2 + Typeform",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "HTTP - Zendesk API",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -476,6 +527,28 @@
             "node": "Merge",
             "type": "main",
             "index": 1
+          }
+        ]
+      ]
+    },
+    "HTTP - Zendesk API": {
+      "main": [
+        [
+          {
+            "node": "Code - Parse Zendesk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parse Zendesk": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
           }
         ]
       ]
