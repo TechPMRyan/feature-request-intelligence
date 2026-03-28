@@ -404,6 +404,122 @@
       "continueOnFail": true
     },
     {
+      "id": "code-prep-upload-001",
+      "name": "Code - Prep File Upload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4080,
+        200
+      ],
+      "parameters": {
+        "jsCode": "const report = $node['Code - Format Output'].json.report;\nconst today = new Date().toISOString().split('T')[0];\nconst filename = today + '-feature-request-report.md';\nconst fileSize = new TextEncoder().encode(report).length;\nreturn [{ json: { filename, fileSize, report, channelId: $node['Config'].json.channelId, slackBotToken: $node['Config'].json.slackBotToken } }];"
+      }
+    },
+    {
+      "id": "http-get-upload-url-001",
+      "name": "HTTP - Get Upload URL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        4320,
+        200
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/files.getUploadURLExternal",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $json.slackBotToken }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/x-www-form-urlencoded"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/x-www-form-urlencoded",
+        "body": "={{ 'filename=' + encodeURIComponent($json.filename) + '&length=' + $json.fileSize }}"
+      }
+    },
+    {
+      "id": "code-map-upload-001",
+      "name": "Code - Map Upload Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4560,
+        200
+      ],
+      "parameters": {
+        "jsCode": "const urlResp = $input.first().json;\nconst prep = $node['Code - Prep File Upload'].json;\nlet uploadUrl = urlResp.upload_url;\nlet fileId = urlResp.file_id;\nif (!uploadUrl && urlResp.data) {\n  try {\n    const parsed = typeof urlResp.data === 'string' ? JSON.parse(urlResp.data) : urlResp.data;\n    uploadUrl = parsed.upload_url;\n    fileId = parsed.file_id;\n  } catch(e) {}\n}\nreturn [{ json: { uploadUrl, fileId, report: prep.report, channelId: prep.channelId, slackBotToken: prep.slackBotToken } }];"
+      }
+    },
+    {
+      "id": "http-upload-file-001",
+      "name": "HTTP - Upload File Content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        4800,
+        200
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.uploadUrl }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/octet-stream"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/octet-stream",
+        "body": "={{ $node['Code - Map Upload Data'].json.report }}"
+      }
+    },
+    {
+      "id": "http-complete-upload-001",
+      "name": "HTTP - Complete Upload",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        5040,
+        200
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/files.completeUploadExternal",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $node['Code - Map Upload Data'].json.slackBotToken }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ files: [{ id: $node['Code - Map Upload Data'].json.fileId, title: 'Feature Request Intelligence Report, ' + new Date().toISOString().split('T')[0] }], channel_id: $node['Code - Map Upload Data'].json.channelId, initial_comment: 'Full report attached below.' }) }}"
+      },
+      "continueOnFail": true
+    },
+    {
       "id": "http-file-writer-001",
       "name": "HTTP - File Writer",
       "type": "n8n-nodes-base.httpRequest",
@@ -646,6 +762,61 @@
           },
           {
             "node": "HTTP - File Writer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Slack Post Report": {
+      "main": [
+        [
+          {
+            "node": "Code - Prep File Upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Prep File Upload": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Get Upload URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Get Upload URL": {
+      "main": [
+        [
+          {
+            "node": "Code - Map Upload Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Map Upload Data": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Upload File Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Upload File Content": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Complete Upload",
             "type": "main",
             "index": 0
           }
