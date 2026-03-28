@@ -18,19 +18,21 @@ Multi-source ingestion pipeline that normalizes customer feedback into a unified
 
 **Input sources:** App Store reviews (live via iTunes RSS), G2 reviews, Typeform responses, CSV upload
 
-**Output:** A scored, ranked report with executive summary, theme-by-theme breakdown, representative quotes, and recommended next actions.
+**Triggers:** Manual execution, Slack slash command (`/customer-fr`)
+
+**Output:** A scored, ranked report with executive summary, theme-by-theme breakdown, representative quotes, and recommended next actions. Posts to Slack, saves to Markdown, or writes to Notion.
 
 ---
 
 ## Architecture
 
-![Phase 3 workflow canvas — parallel ingestion, Claude pipeline, Switch node routing to Markdown / Slack / Notion](docs/workflow-canvas.png)
+![Phase 3 workflow canvas - parallel ingestion, Claude pipeline, Switch node routing to Markdown / Slack / Notion](docs/workflow-canvas.png)
 
 ```
-[Trigger: Manual or Weekly Cron]
+[Trigger: Manual, Cron, or Slack /customer-fr]
         ↓
 Parallel ingestion
-  ├── iTunes RSS API   (live App Store reviews — no auth required)
+  ├── iTunes RSS API   (live App Store reviews - no auth required)
   ├── G2 Reviews       (public RSS feed)
   ├── Typeform         (webhook or poll)
   └── CSV / Sheets     (upload or Google Sheets node)
@@ -38,15 +40,15 @@ Parallel ingestion
 Merge + Normalize
 (unified schema: text, source, date, rating per item)
         ↓
-Claude — Thematic Clustering
+Claude - Thematic Clustering
 (groups all feedback into named themes; assigns each item to a theme)
         ↓
-Claude — Multi-Dimensional Scoring
+Claude - Multi-Dimensional Scoring
 (scores each theme: frequency · sentiment · revenue signal · effort)
         ↓
 Sort by composite score
         ↓
-Claude — Report Generation
+Claude - Report Generation
 (executive summary, ranked themes, representative quotes, recommendations)
         ↓
 Switch: Output Mode (set in Config)
@@ -79,38 +81,38 @@ Generated: 2025-01-14 | Sources: 47 items across 4 sources
 Customers are most frustrated by the lack of bulk export functionality,
 with churn risk elevated among enterprise accounts. Mobile performance
 issues represent a high-frequency complaint skewing heavily 1-star.
-Collaboration features are requested with positive sentiment — users
+Collaboration features are requested with positive sentiment - users
 want them rather than being blocked by their absence.
 
 ## Prioritized Themes
 
-### 1. Bulk Export / Data Portability — Score: 91/100
+### 1. Bulk Export / Data Portability - Score: 91/100
 - **Frequency:** 18 mentions across App Store, G2, and Typeform
-- **Sentiment:** Strongly negative — described as a "dealbreaker" repeatedly
+- **Sentiment:** Strongly negative - described as a "dealbreaker" repeatedly
 - **Revenue signal:** 4 enterprise accounts cited this in churned feedback
-- **Effort hint:** API work + permissions model — medium complexity
+- **Effort hint:** API work + permissions model - medium complexity
 - **Representative quotes:**
-  > "We can't use this at scale without a way to export everything at once." — G2, 2 stars
-  > "I've been waiting 2 years for bulk export. Moving to a competitor." — App Store, 1 star
+  > "We can't use this at scale without a way to export everything at once." - G2, 2 stars
+  > "I've been waiting 2 years for bulk export. Moving to a competitor." - App Store, 1 star
 
-### 2. Mobile Performance — Score: 78/100
+### 2. Mobile Performance - Score: 78/100
 - **Frequency:** 14 mentions (App Store-heavy)
-- **Sentiment:** Negative — frustration, not feature requests
+- **Sentiment:** Negative - frustration, not feature requests
 - **Revenue signal:** Low (consumer segment; no enterprise signals detected)
-- **Effort hint:** Platform-level performance work — high complexity
+- **Effort hint:** Platform-level performance work - high complexity
 - **Representative quotes:**
-  > "Crashes every time I try to open a large file on iPhone." — App Store, 1 star
+  > "Crashes every time I try to open a large file on iPhone." - App Store, 1 star
 
-### 3. Real-Time Collaboration — Score: 61/100
+### 3. Real-Time Collaboration - Score: 61/100
 - **Frequency:** 9 mentions across G2 and Typeform
-- **Sentiment:** Positive — framed as excitement, not frustration
+- **Sentiment:** Positive - framed as excitement, not frustration
 - **Revenue signal:** 2 mid-market accounts mentioned in expansion feedback
-- **Effort hint:** Infrastructure-level change — high complexity
+- **Effort hint:** Infrastructure-level change - high complexity
 
 ## Recommended Next Actions
 1. Prioritize bulk export: high frequency, confirmed revenue signal, active churn risk
 2. Investigate mobile crash reports before next App Store release cycle
-3. Add collaboration to roadmap with a public timeline — positive sentiment makes it a win to announce
+3. Add collaboration to roadmap with a public timeline - positive sentiment makes it a win to announce
 ```
 
 ---
@@ -137,10 +139,11 @@ Claude doesn't see raw feedback at the scoring stage: it works from the clusteri
 | G2 reviews | HTTP Request (public RSS) | None | ✅ Live |
 | CSV / Google Sheets | Google Sheets node | OAuth | ✅ Live |
 | Typeform | Typeform trigger | API key | ✅ Live |
-| Zendesk | Zendesk API | API key | 🔲 Planned |
+| Zendesk | Zendesk Search API | API key + email | ✅ Live |
 | Sleekplan | Sleekplan API | API key | 🔲 Planned |
 | Claude | Anthropic API | API key | ✅ Live |
-| Slack (output) | Incoming Webhook | Webhook URL | ✅ Live |
+| Slack (trigger) | Slash command `/customer-fr` | Bot token | ✅ Live |
+| Slack (output) | `chat.postMessage` API | Bot token | ✅ Live |
 | Notion (output) | Notion API | Integration token | ✅ Live |
 
 ---
@@ -150,6 +153,8 @@ Claude doesn't see raw feedback at the scoring stage: it works from the clusteri
 - [x] **Core Pipeline:** Sample data (22 rows, no external credentials) → Claude clustering + scoring + report → Markdown output
 - [x] **Multi-Source Ingestion:** Live App Store RSS (iTunes API) + G2/Typeform sample → Merge node → same Claude pipeline
 - [x] **Multi-Output Routing:** Switch node routes output to Markdown, Slack, or Notion based on `outputMode`
+- [x] **Zendesk Ingestion:** Live Zendesk ticket pull via Search API → normalized to unified schema → parallel branch feeding Merge node
+- [x] **Slack Trigger:** `/customer-fr` slash command triggers the pipeline from any channel, acks within 3 seconds, runs async, posts the report back to the channel with Block Kit formatting
 
 ---
 
@@ -157,10 +162,9 @@ Claude doesn't see raw feedback at the scoring stage: it works from the clusteri
 
 | # | Source | Notes |
 |---|--------|-------|
-| 1 | **Zendesk** | Ingest support tickets via Zendesk API; map ticket fields to unified schema (text, source, date, rating proxy from ticket priority/satisfaction) |
-| 2 | **Sleekplan** | Ingest feature votes and feedback posts via Sleekplan API; weight by vote count as a frequency signal |
+| 1 | **Sleekplan** | Ingest feature votes and feedback posts via Sleekplan API; weight by vote count as a frequency signal |
 
-Both sources feed the existing Merge + Normalize stage with no changes to the Claude pipeline or output layer.
+Feeds the existing Merge + Normalize stage with no changes to the Claude pipeline or output layer.
 
 ---
 
@@ -202,6 +206,58 @@ Both sources feed the existing Merge + Normalize stage with no changes to the Cl
 
 **Notion:** [notion.so/my-integrations](https://www.notion.so/my-integrations) → New Integration → copy token → share your database with the integration → copy database ID from its URL
 
+### Zendesk Ingestion: Live ticket pull as a parallel source
+
+1. Import `workflows/phase-4-zendesk.json`
+2. Open **Config** and set:
+   - `zendeskEmail`: your Zendesk agent email
+   - `zendeskToken`: your Zendesk API token (Admin → Apps & Integrations → Zendesk API → Add API token)
+   - `zendeskSubdomain`: the part before `.zendesk.com` in your URL
+   - `zendeskQuery`: search query to filter tickets (default: `type:ticket created>2025-01-01`)
+3. Set all other fields (Anthropic key, output mode, etc.) as in phase 3
+4. Click **Execute Workflow**
+
+**Query examples:**
+- All tickets since a date: `type:ticket created>2025-01-01`
+- Tagged tickets only: `type:ticket tags:product-feedback`
+- Bad CSAT tickets: `type:ticket status:solved satisfaction:bad`
+- Solved bugs since date: `type:ticket tags:bug created>2025-01-01 status:solved`
+
+**Rating mapping:** CSAT score takes priority (good=5, bad=1). Falls back to ticket priority (urgent=1, high=2, normal=3, low=4).
+
+### Slack Trigger: Run from any Slack channel
+
+1. Import `workflows/phase-slack-trigger.json`
+2. Open **Config** and set:
+   - `apiKey`: your Anthropic API key
+   - `slackBotToken`: your Slack bot token (`xoxb-...`)
+   - `appId`: App Store app ID (optional, for iTunes RSS source)
+3. **Publish** the workflow (production webhooks only register on published workflows)
+
+**Slack App setup:**
+
+1. Create a Slack App at [api.slack.com/apps](https://api.slack.com/apps)
+2. Add bot scopes: `chat:write`, `commands` (OAuth & Permissions)
+3. Install to workspace, copy the Bot User OAuth Token
+4. Create slash command `/customer-fr` pointing to `https://<your-n8n-host>/webhook/fri-slack-trigger`
+5. Invite the bot to channels where you want to use the command: `/invite @YourBotName`
+
+**Slash command parameters:**
+- `/customer-fr` : all sources, last 30 days
+- `/customer-fr ios` : filter feedback by keyword
+- `/customer-fr last 7 days` : custom time range
+- `/customer-fr ios last 14 days` : both filters combined
+
+**Local development:** n8n must be reachable from Slack. Use [ngrok](https://ngrok.com) (`ngrok http 5678`) to expose your local instance. Avoid localtunnel, it drops connections frequently.
+
+**Important n8n v2 notes:**
+- "Publish" is how n8n v2 activates workflows. Production webhook URLs only work on published workflows.
+- Every `n8n import:workflow` deactivates the workflow. You must republish after each import.
+- Production webhook executions don't appear on the canvas. Check the **Executions** list in the sidebar.
+- The workflow uses the Config node pattern for API keys (key passed as header), not n8n's credential system. This avoids credential ID mismatch issues when importing across n8n instances.
+
+---
+
 ### File writing workaround
 
 n8n's Code node sandbox blocks `fs`. Markdown output works by POSTing to a local HTTP listener instead:
@@ -210,16 +266,24 @@ n8n's Code node sandbox blocks `fs`. Markdown output works by POSTing to a local
 powershell -ExecutionPolicy Bypass -File "path\to\file-writer.ps1"
 ```
 
-Bring your own `file-writer.ps1` — any HTTP listener that accepts `POST { filename, content }` and writes the file to disk will work.
+Bring your own `file-writer.ps1` - any HTTP listener that accepts `POST { filename, content }` and writes the file to disk will work.
 
 ---
 
 ## Files
 
 ```
-workflows/     — n8n workflow JSON (one per phase; public files use REPLACE_WITH_... placeholders)
-prompts/       — Claude prompt templates: clustering, scoring, report
-samples/       — Sample input CSV + example output report
-docs/          — Architecture notes and implementation decisions
+workflows/
+  phase-1-csv-to-report.json       - Core pipeline: sample data to report
+  phase-2-multi-source.json        - Live App Store + G2 ingestion
+  phase-3-multi-output.json        - Multi-output routing (Markdown/Slack/Notion)
+  phase-4-zendesk.json             - Zendesk ticket ingestion
+  phase-slack-trigger.json         - Slack /customer-fr slash command trigger
+  *-with-creds.json                - Gitignored variants with credentials baked in
+prompts/       - Claude prompt templates: clustering, scoring, report
+samples/       - Sample input CSV + example output report
+outputs/       - Generated reports (gitignored)
+docs/          - Architecture notes and implementation decisions
+file-writer.ps1 - Local HTTP listener for Markdown file output
 ```
 
